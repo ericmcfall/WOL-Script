@@ -4,6 +4,37 @@ A small Python script that sends a Wake-on-LAN "magic packet" to a computer on
 your network. It can do this right away or every day at a set time. It uses only
 the Python standard library, so there's nothing to install.
 
+## Requirements
+
+The only requirement is **Python 3.7 or newer**. The script uses only modules
+that come with Python, so you don't need `pip install` or any other packages.
+
+### Installing Python on Windows 11
+
+Windows 11 doesn't come with Python. Install it one of these ways:
+
+- **python.org (recommended):** download the latest Python 3 installer from
+  <https://www.python.org/downloads/windows/> and run it. On the first screen,
+  check **"Add python.exe to PATH"**, then click **Install Now**.
+- **winget:** open Terminal or PowerShell and run
+  `winget install Python.Python.3.13`. If a newer version is out, run
+  `winget search Python.Python` to find its ID.
+- **Microsoft Store:** search for "Python 3.13" (or the latest version) and
+  install it.
+
+To check that it worked, open a new Terminal window and run:
+
+```powershell
+python --version
+```
+
+It should print `Python 3.x.x`. If `python` isn't found, try the `py` launcher
+(`py --version`), which the python.org installer adds. Then use `py wol.py send`
+in place of `python3 wol.py send` in the commands below.
+
+On Windows, replace `python3` with `python` (or `py`) in all the examples in
+this README.
+
 ## Setup
 
 1. Turn on Wake-on-LAN for the target computer, in its BIOS/UEFI and in the
@@ -83,3 +114,8 @@ ignored.
   `0 7 * * * /usr/bin/python3 /path/to/WOL-Script/wol.py send`
 - **Windows (Task Scheduler):** create a daily task whose action is
   `python` with arguments `C:\path\to\WOL-Script\wol.py send`.
+
+To use Option A on Windows instead, create a Task Scheduler task triggered
+"At startup" (or "At log on"). Set its program to `pythonw.exe`, which runs
+without a console window, and its arguments to
+`C:\path\to\WOL-Script\wol.py run`.
