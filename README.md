@@ -54,7 +54,8 @@ this README.
     ],
     "wake_time": "07:00",
     "broadcast_address": "255.255.255.255",
-    "port": 9
+    "port": 9,
+    "delay_seconds": 1
 }
 ```
 
@@ -64,6 +65,7 @@ this README.
 | `wake_time`         | Daily wake time in 24-hour `HH:MM`, in the local time of the machine running the script. |
 | `broadcast_address` | Usually fine as is. If the packet doesn't arrive, try your subnet's broadcast address, e.g. `192.168.1.255`. |
 | `port`              | UDP port, normally `9` (sometimes `7`).                                                  |
+| `delay_seconds`     | Pause between waking each computer, in seconds (default `1`). Decimals like `0.5` work; `0` means no pause. |
 
 ## Usage
 

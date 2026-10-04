@@ -36,6 +36,7 @@ DEFAULT_CONFIG = {
     "wake_time": "07:00",
     "broadcast_address": "255.255.255.255",
     "port": 9,
+    "delay_seconds": 1,
 }
 
 MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}([:\-.]?[0-9A-Fa-f]{2}){5}$")
@@ -82,6 +83,12 @@ def load_config(path):
         normalize_mac(mac)
     parse_time(config["wake_time"])
     config["port"] = int(config["port"])
+    try:
+        delay = float(config["delay_seconds"])
+    except (TypeError, ValueError):
+        delay = -1
+    if delay < 0:
+        raise ValueError(f'"delay_seconds" must be a number of seconds, 0 or more, in {path}')
     return config
 
 
@@ -136,12 +143,15 @@ def send_magic_packet(mac, broadcast="255.255.255.255", port=9):
 
 
 def send_from_config(config):
-    """Wake every listed computer. A failure for one doesn't stop the rest.
+    """Wake every listed computer, pausing delay_seconds between each one.
 
-    Returns True if every packet was sent.
+    A failure for one computer doesn't stop the rest. Returns True if every
+    packet was sent.
     """
     ok = True
-    for mac in config["mac_addresses"]:
+    for i, mac in enumerate(config["mac_addresses"]):
+        if i > 0:
+            time.sleep(float(config["delay_seconds"]))
         try:
             send_magic_packet(mac, config["broadcast_address"], config["port"])
         except OSError as e:
