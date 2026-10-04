@@ -1,9 +1,9 @@
 # WOL-Script
 
 A small Python script that sends Wake-on-LAN "magic packets" to one or more
-computers on your network. It can do this right away or every day at a set
-time. It uses only
-the Python standard library, so there's nothing to install.
+computers on your network. It can do this right away, or automatically at a
+set time on the days of the week you choose. It uses only the Python standard
+library, so there's nothing to install.
 
 ## Requirements
 
@@ -44,7 +44,7 @@ this README.
    - Windows: `ipconfig /all` (look for "Physical Address")
    - macOS: `ifconfig en0 | grep ether`
    - Linux: `ip link`
-3. List the MAC addresses and set the wake time in `config.json`:
+3. List the MAC addresses and set the wake time and days in `config.json`:
 
 ```json
 {
@@ -53,6 +53,7 @@ this README.
         "11:22:33:44:55:66"
     ],
     "wake_time": "07:00",
+    "wake_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
     "broadcast_address": "255.255.255.255",
     "port": 9,
     "delay_seconds": 1
@@ -62,7 +63,8 @@ this README.
 | Setting             | Meaning                                                                                  |
 |---------------------|------------------------------------------------------------------------------------------|
 | `mac_addresses`     | List of computers to wake, one MAC per entry. All of them wake at `wake_time`. `:`, `-`, `.` or no separators all work. |
-| `wake_time`         | Daily wake time in 24-hour `HH:MM`, in the local time of the machine running the script. |
+| `wake_time`         | Wake time in 24-hour `HH:MM`, in the local time of the machine running the script. |
+| `wake_days`         | Days of the week to wake the computers. Use full names (`"Monday"`) or 3-letter abbreviations (`"mon"`), in any case. You can also use `"weekdays"`, `"weekends"` or `"everyday"`. If you leave it out, the script wakes them every day. |
 | `broadcast_address` | Usually fine as is. If the packet doesn't arrive, try your subnet's broadcast address, e.g. `192.168.1.255`. |
 | `port`              | UDP port, normally `9` (sometimes `7`).                                                  |
 | `delay_seconds`     | Pause between waking each computer, in seconds (default `1`). Decimals like `0.5` work; `0` means no pause. |
@@ -71,12 +73,14 @@ this README.
 
 ```bash
 python3 wol.py send                         # wake all listed computers now (good for testing)
-python3 wol.py run                          # keep running and wake them every day at wake_time
+python3 wol.py run                          # keep running and wake them at wake_time on wake_days
 python3 wol.py show                         # print the current settings
 python3 wol.py add-mac 22:33:44:55:66:77    # add a computer (you can list several)
 python3 wol.py remove-mac 11:22:33:44:55:66 # remove a computer (you can list several)
 python3 wol.py set-mac AA:BB:CC:DD:EE:FF 11:22:33:44:55:66  # replace the whole list
 python3 wol.py set-time 06:45               # change the wake time
+python3 wol.py set-days monday wed friday   # choose the wake days
+python3 wol.py set-days weekdays            # Monday to Friday (also: weekends, everyday)
 ```
 
 If a packet fails to send to one computer, the script logs the error and still
@@ -84,7 +88,7 @@ wakes the rest.
 
 To use a different config file, pass `-c path/to/config.json` before the command.
 
-You can change the time or the MAC addresses while `run` is going, by editing
+You can change the time, the days or the MAC addresses while `run` is going, by editing
 `config.json` or with the commands above. The scheduler re-reads the file
 about every 30 seconds and picks up the change without a restart.
 
@@ -100,7 +104,7 @@ Start `python3 wol.py run` when the machine boots. On Linux with systemd, create
 
 ```ini
 [Unit]
-Description=Daily Wake-on-LAN
+Description=Scheduled Wake-on-LAN
 After=network-online.target
 Wants=network-online.target
 
@@ -117,14 +121,16 @@ Then run `sudo systemctl enable --now wol.service`. To see the log, run
 
 ### Option B: your OS scheduler
 
-You can also have the OS run `wol.py send` once a day. With this option, the
-wake time is set in the OS scheduler and `wake_time` in `config.json` is
-ignored.
+You can also have the OS run `wol.py send` on a schedule. With this option,
+the time and days are set in the OS scheduler, and `wake_time` and `wake_days`
+in `config.json` are ignored.
 
-- **Linux/macOS (cron):** `crontab -e`, then add
-  `0 7 * * * /usr/bin/python3 /path/to/WOL-Script/wol.py send`
-- **Windows (Task Scheduler):** create a daily task whose action is
-  `python` with arguments `C:\path\to\WOL-Script\wol.py send`.
+- **Linux/macOS (cron):** `crontab -e`, then add a line like
+  `0 7 * * 1-5 /usr/bin/python3 /path/to/WOL-Script/wol.py send`.
+  This runs at 07:00, Monday to Friday. Use `*` in place of `1-5` for every day.
+- **Windows (Task Scheduler):** create a task with a "Weekly" trigger, tick the
+  days you want, and set its action to `python` with arguments
+  `C:\path\to\WOL-Script\wol.py send`.
 
 To use Option A on Windows instead, create a Task Scheduler task triggered
 "At startup" (or "At log on"). Set its program to `pythonw.exe`, which runs

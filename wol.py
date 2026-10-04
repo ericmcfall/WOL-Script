@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Send Wake-on-LAN magic packets, on demand or every day at a set time.
+"""Send Wake-on-LAN magic packets, on demand or on chosen days at a set time.
 
-Settings (MAC addresses, wake time, broadcast address, port) live in
+Settings (MAC addresses, wake time, wake days, broadcast address, port) live in
 config.json next to this script. Every computer listed in "mac_addresses"
 is woken at the same time. Edit that file directly, or use the commands
 below. A running scheduler re-reads the file every loop, so changes take
@@ -9,11 +9,12 @@ effect without restarting it.
 
 Usage:
     python3 wol.py send                  # wake all computers right now
-    python3 wol.py run                   # stay running, wake all daily at the configured time
+    python3 wol.py run                   # stay running, wake all at the configured time and days
     python3 wol.py add-mac AA:BB:CC:DD:EE:FF
     python3 wol.py remove-mac AA:BB:CC:DD:EE:FF
     python3 wol.py set-mac AA:BB:CC:DD:EE:FF 11:22:33:44:55:66   # replace the whole list
     python3 wol.py set-time 07:30
+    python3 wol.py set-days monday wednesday friday   # or: weekdays, weekends, everyday
     python3 wol.py show                  # print the current settings
 
 Uses only the Python standard library.
@@ -34,6 +35,7 @@ DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 DEFAULT_CONFIG = {
     "mac_addresses": ["AA:BB:CC:DD:EE:FF"],
     "wake_time": "07:00",
+    "wake_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
     "broadcast_address": "255.255.255.255",
     "port": 9,
     "delay_seconds": 1,
@@ -41,6 +43,15 @@ DEFAULT_CONFIG = {
 
 MAC_RE = re.compile(r"^[0-9A-Fa-f]{2}([:\-.]?[0-9A-Fa-f]{2}){5}$")
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+
+# Index matches datetime.weekday(): Monday is 0.
+DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+DAY_GROUPS = {
+    "everyday": DAY_NAMES,
+    "daily": DAY_NAMES,
+    "weekdays": DAY_NAMES[:5],
+    "weekends": DAY_NAMES[5:],
+}
 
 log = logging.getLogger("wol")
 
@@ -63,6 +74,29 @@ def parse_time(value):
     return int(match.group(1)), int(match.group(2))
 
 
+def parse_days(values):
+    """Turn day names into a list of full names in Monday-to-Sunday order.
+
+    Accepts full names or 3-letter abbreviations in any case ("Monday", "mon"),
+    plus the groups "weekdays", "weekends" and "everyday". Raises ValueError.
+    """
+    if isinstance(values, str):
+        values = [values]
+    days = set()
+    for value in values:
+        key = str(value).strip().lower()
+        if key in DAY_GROUPS:
+            days.update(DAY_GROUPS[key])
+            continue
+        matches = [d for d in DAY_NAMES if key == d.lower() or key == d.lower()[:3]]
+        if not matches:
+            raise ValueError(f"Invalid day: {value!r} (expected e.g. Monday, mon, weekdays, weekends)")
+        days.update(matches)
+    if not days:
+        raise ValueError("At least one wake day is required")
+    return [d for d in DAY_NAMES if d in days]
+
+
 def load_config(path):
     if not path.exists():
         save_config(path, DEFAULT_CONFIG)
@@ -82,6 +116,7 @@ def load_config(path):
     for mac in config["mac_addresses"]:
         normalize_mac(mac)
     parse_time(config["wake_time"])
+    parse_days(config["wake_days"])
     config["port"] = int(config["port"])
     try:
         delay = float(config["delay_seconds"])
@@ -162,24 +197,33 @@ def send_from_config(config):
 
 # --- scheduler --------------------------------------------------------------
 
-def next_run(wake_time, now):
+def next_run(wake_time, wake_days, now):
+    """Return the next datetime after now that falls on a wake day at wake_time."""
     hour, minute = parse_time(wake_time)
+    allowed = {DAY_NAMES.index(d) for d in parse_days(wake_days)}
     target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
     if target <= now:
+        target += timedelta(days=1)
+    while target.weekday() not in allowed:
         target += timedelta(days=1)
     return target
 
 
-def run_scheduler(config_path):
-    """Wake the computer every day at the configured time.
+def format_target(target):
+    return target.strftime("%A %Y-%m-%d %H:%M")
 
-    The config is re-read on every loop, so edits to the MAC addresses or wake
-    time are picked up within about 30 seconds without a restart.
+
+def run_scheduler(config_path):
+    """Wake the computers at the configured time on the configured days.
+
+    The config is re-read on every loop, so edits to the MAC addresses, wake
+    time or wake days are picked up within about 30 seconds without a restart.
     """
     config = load_config(config_path)
-    target = next_run(config["wake_time"], datetime.now())
-    log.info("Scheduler started. Next wake for %s at %s",
-             ", ".join(config["mac_addresses"]), target.strftime("%Y-%m-%d %H:%M"))
+    target = next_run(config["wake_time"], config["wake_days"], datetime.now())
+    log.info("Scheduler started. Waking %s at %s on %s. Next wake: %s",
+             ", ".join(config["mac_addresses"]), config["wake_time"],
+             ", ".join(parse_days(config["wake_days"])), format_target(target))
 
     while True:
         time.sleep(min(30, max(1, (target - datetime.now()).total_seconds())))
@@ -191,30 +235,32 @@ def run_scheduler(config_path):
             log.error("Config error, keeping previous settings: %s", e)
             new_config = config
 
-        if new_config["wake_time"] != config["wake_time"]:
-            target = next_run(new_config["wake_time"], now)
-            log.info("Wake time changed to %s. Next wake at %s",
-                     new_config["wake_time"], target.strftime("%Y-%m-%d %H:%M"))
+        if (new_config["wake_time"] != config["wake_time"]
+                or parse_days(new_config["wake_days"]) != parse_days(config["wake_days"])):
+            target = next_run(new_config["wake_time"], new_config["wake_days"], now)
+            log.info("Schedule changed to %s on %s. Next wake: %s",
+                     new_config["wake_time"], ", ".join(parse_days(new_config["wake_days"])),
+                     format_target(target))
         if new_config["mac_addresses"] != config["mac_addresses"]:
             log.info("MAC addresses changed to %s", ", ".join(new_config["mac_addresses"]))
         config = new_config
 
         if now >= target:
             send_from_config(config)
-            target = next_run(config["wake_time"], now)
-            log.info("Next wake at %s", target.strftime("%Y-%m-%d %H:%M"))
+            target = next_run(config["wake_time"], config["wake_days"], now)
+            log.info("Next wake: %s", format_target(target))
 
 
 # --- cli --------------------------------------------------------------------
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Wake-on-LAN sender and daily scheduler.")
+    parser = argparse.ArgumentParser(description="Wake-on-LAN sender and scheduler.")
     parser.add_argument("-c", "--config", type=Path, default=DEFAULT_CONFIG_PATH,
                         help=f"path to config file (default: {DEFAULT_CONFIG_PATH})")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("send", help="wake all listed computers now")
-    sub.add_parser("run", help="run continuously and wake all listed computers daily at the configured time")
+    sub.add_parser("run", help="run continuously and wake all listed computers at the configured time and days")
     sub.add_parser("show", help="show current settings")
     p = sub.add_parser("add-mac", help="add one or more MAC addresses to the list")
     p.add_argument("macs", nargs="+", metavar="MAC")
@@ -222,8 +268,10 @@ def main(argv=None):
     p.add_argument("macs", nargs="+", metavar="MAC")
     p = sub.add_parser("set-mac", help="replace the whole list with the given MAC address(es)")
     p.add_argument("macs", nargs="+", metavar="MAC")
-    p = sub.add_parser("set-time", help="change the daily wake time (24-hour HH:MM)")
+    p = sub.add_parser("set-time", help="change the wake time (24-hour HH:MM)")
     p.add_argument("time")
+    p = sub.add_parser("set-days", help="choose which days to wake, e.g. monday wed fri, weekdays, weekends, everyday")
+    p.add_argument("days", nargs="+", metavar="DAY")
 
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
@@ -250,6 +298,8 @@ def main(argv=None):
         elif args.command == "set-time":
             hour, minute = parse_time(args.time)
             update_config(args.config, "wake_time", f"{hour:02d}:{minute:02d}")
+        elif args.command == "set-days":
+            update_config(args.config, "wake_days", parse_days(args.days))
     except (ValueError, json.JSONDecodeError) as e:
         log.error("%s", e)
         return 1

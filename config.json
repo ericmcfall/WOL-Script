@@ -4,6 +4,7 @@
         "11:22:33:44:55:66"
     ],
     "wake_time": "07:00",
+    "wake_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
     "broadcast_address": "255.255.255.255",
     "port": 9,
     "delay_seconds": 1
