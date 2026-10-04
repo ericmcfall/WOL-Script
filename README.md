@@ -1,7 +1,8 @@
 # WOL-Script
 
-A small Python script that sends a Wake-on-LAN "magic packet" to a computer on
-your network. It can do this right away or every day at a set time. It uses only
+A small Python script that sends Wake-on-LAN "magic packets" to one or more
+computers on your network. It can do this right away or every day at a set
+time. It uses only
 the Python standard library, so there's nothing to install.
 
 ## Requirements
@@ -37,17 +38,20 @@ this README.
 
 ## Setup
 
-1. Turn on Wake-on-LAN for the target computer, in its BIOS/UEFI and in the
-   network adapter settings of its operating system.
-2. Find the target computer's MAC address:
+1. Turn on Wake-on-LAN for each computer you want to wake, in its BIOS/UEFI
+   and in the network adapter settings of its operating system.
+2. Find each computer's MAC address:
    - Windows: `ipconfig /all` (look for "Physical Address")
    - macOS: `ifconfig en0 | grep ether`
    - Linux: `ip link`
-3. Put the MAC address and the wake time in `config.json`:
+3. List the MAC addresses and set the wake time in `config.json`:
 
 ```json
 {
-    "mac_address": "AA:BB:CC:DD:EE:FF",
+    "mac_addresses": [
+        "AA:BB:CC:DD:EE:FF",
+        "11:22:33:44:55:66"
+    ],
     "wake_time": "07:00",
     "broadcast_address": "255.255.255.255",
     "port": 9
@@ -56,7 +60,7 @@ this README.
 
 | Setting             | Meaning                                                                                  |
 |---------------------|------------------------------------------------------------------------------------------|
-| `mac_address`       | MAC of the computer to wake. `:`, `-`, `.` or no separators all work.                    |
+| `mac_addresses`     | List of computers to wake, one MAC per entry. All of them wake at `wake_time`. `:`, `-`, `.` or no separators all work. |
 | `wake_time`         | Daily wake time in 24-hour `HH:MM`, in the local time of the machine running the script. |
 | `broadcast_address` | Usually fine as is. If the packet doesn't arrive, try your subnet's broadcast address, e.g. `192.168.1.255`. |
 | `port`              | UDP port, normally `9` (sometimes `7`).                                                  |
@@ -64,17 +68,22 @@ this README.
 ## Usage
 
 ```bash
-python3 wol.py send                      # wake the computer now (good for testing)
-python3 wol.py run                       # keep running and wake it every day at wake_time
-python3 wol.py show                      # print the current settings
-python3 wol.py set-mac 11:22:33:44:55:66 # change the MAC address
-python3 wol.py set-time 06:45            # change the wake time
+python3 wol.py send                         # wake all listed computers now (good for testing)
+python3 wol.py run                          # keep running and wake them every day at wake_time
+python3 wol.py show                         # print the current settings
+python3 wol.py add-mac 22:33:44:55:66:77    # add a computer (you can list several)
+python3 wol.py remove-mac 11:22:33:44:55:66 # remove a computer (you can list several)
+python3 wol.py set-mac AA:BB:CC:DD:EE:FF 11:22:33:44:55:66  # replace the whole list
+python3 wol.py set-time 06:45               # change the wake time
 ```
+
+If a packet fails to send to one computer, the script logs the error and still
+wakes the rest.
 
 To use a different config file, pass `-c path/to/config.json` before the command.
 
-You can change the time or MAC address while `run` is going, by editing
-`config.json` or with `set-time` / `set-mac`. The scheduler re-reads the file
+You can change the time or the MAC addresses while `run` is going, by editing
+`config.json` or with the commands above. The scheduler re-reads the file
 about every 30 seconds and picks up the change without a restart.
 
 ## Running it automatically

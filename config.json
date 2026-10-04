@@ -1,5 +1,8 @@
 {
-    "mac_address": "AA:BB:CC:DD:EE:FF",
+    "mac_addresses": [
+        "AA:BB:CC:DD:EE:FF",
+        "11:22:33:44:55:66"
+    ],
     "wake_time": "07:00",
     "broadcast_address": "255.255.255.255",
     "port": 9

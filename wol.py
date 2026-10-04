@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""Send a Wake-on-LAN magic packet, on demand or every day at a set time.
+"""Send Wake-on-LAN magic packets, on demand or every day at a set time.
 
-Settings (MAC address, wake time, broadcast address, port) live in
-config.json next to this script. Edit that file directly, or use the
-`set-mac` / `set-time` commands. A running scheduler re-reads the file
-every loop, so changes take effect without restarting it.
+Settings (MAC addresses, wake time, broadcast address, port) live in
+config.json next to this script. Every computer listed in "mac_addresses"
+is woken at the same time. Edit that file directly, or use the commands
+below. A running scheduler re-reads the file every loop, so changes take
+effect without restarting it.
 
 Usage:
-    python3 wol.py send                  # wake the computer right now
-    python3 wol.py run                   # stay running, wake daily at the configured time
-    python3 wol.py set-mac AA:BB:CC:DD:EE:FF
+    python3 wol.py send                  # wake all computers right now
+    python3 wol.py run                   # stay running, wake all daily at the configured time
+    python3 wol.py add-mac AA:BB:CC:DD:EE:FF
+    python3 wol.py remove-mac AA:BB:CC:DD:EE:FF
+    python3 wol.py set-mac AA:BB:CC:DD:EE:FF 11:22:33:44:55:66   # replace the whole list
     python3 wol.py set-time 07:30
     python3 wol.py show                  # print the current settings
 
@@ -29,7 +32,7 @@ from pathlib import Path
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 
 DEFAULT_CONFIG = {
-    "mac_address": "AA:BB:CC:DD:EE:FF",
+    "mac_addresses": ["AA:BB:CC:DD:EE:FF"],
     "wake_time": "07:00",
     "broadcast_address": "255.255.255.255",
     "port": 9,
@@ -62,11 +65,21 @@ def parse_time(value):
 def load_config(path):
     if not path.exists():
         save_config(path, DEFAULT_CONFIG)
-        log.warning("Created default config at %s - edit it with your computer's MAC address.", path)
+        log.warning("Created default config at %s - edit it with your computers' MAC addresses.", path)
     with path.open() as f:
-        config = {**DEFAULT_CONFIG, **json.load(f)}
+        raw = json.load(f)
+    # Older configs had a single "mac_address" string instead of a list.
+    old_mac = raw.pop("mac_address", None)
+    if old_mac and "mac_addresses" not in raw:
+        raw["mac_addresses"] = [old_mac]
+    config = {**DEFAULT_CONFIG, **raw}
+    if isinstance(config["mac_addresses"], str):
+        config["mac_addresses"] = [config["mac_addresses"]]
     # Validate early so mistakes show up immediately, not at wake time.
-    normalize_mac(config["mac_address"])
+    if not config["mac_addresses"]:
+        raise ValueError(f'No MAC addresses listed in "mac_addresses" in {path}')
+    for mac in config["mac_addresses"]:
+        normalize_mac(mac)
     parse_time(config["wake_time"])
     config["port"] = int(config["port"])
     return config
@@ -82,7 +95,32 @@ def update_config(path, key, value):
     config = load_config(path)
     config[key] = value
     save_config(path, config)
-    print(f"Updated {key} = {value} in {path}")
+    print(f"Updated {key} = {json.dumps(value)} in {path}")
+
+
+def add_macs(path, macs):
+    current = load_config(path)["mac_addresses"]
+    known = {normalize_mac(m) for m in current}
+    for mac in macs:
+        if normalize_mac(mac) in known:
+            print(f"{mac} is already in the list")
+        else:
+            current.append(mac)
+            known.add(normalize_mac(mac))
+    update_config(path, "mac_addresses", current)
+
+
+def remove_macs(path, macs):
+    current = load_config(path)["mac_addresses"]
+    to_remove = {normalize_mac(m) for m in macs}
+    remaining = [m for m in current if normalize_mac(m) not in to_remove]
+    missing = to_remove - {normalize_mac(m) for m in current}
+    for mac in macs:
+        if normalize_mac(mac) in missing:
+            print(f"{mac} was not in the list")
+    if not remaining:
+        raise ValueError("Can't remove every MAC address; at least one must remain")
+    update_config(path, "mac_addresses", remaining)
 
 
 # --- wake-on-lan ------------------------------------------------------------
@@ -98,7 +136,18 @@ def send_magic_packet(mac, broadcast="255.255.255.255", port=9):
 
 
 def send_from_config(config):
-    send_magic_packet(config["mac_address"], config["broadcast_address"], config["port"])
+    """Wake every listed computer. A failure for one doesn't stop the rest.
+
+    Returns True if every packet was sent.
+    """
+    ok = True
+    for mac in config["mac_addresses"]:
+        try:
+            send_magic_packet(mac, config["broadcast_address"], config["port"])
+        except OSError as e:
+            log.error("Failed to send magic packet to %s: %s", mac, e)
+            ok = False
+    return ok
 
 
 # --- scheduler --------------------------------------------------------------
@@ -114,13 +163,13 @@ def next_run(wake_time, now):
 def run_scheduler(config_path):
     """Wake the computer every day at the configured time.
 
-    The config is re-read on every loop, so edits to the MAC address or wake
+    The config is re-read on every loop, so edits to the MAC addresses or wake
     time are picked up within about 30 seconds without a restart.
     """
     config = load_config(config_path)
     target = next_run(config["wake_time"], datetime.now())
     log.info("Scheduler started. Next wake for %s at %s",
-             config["mac_address"], target.strftime("%Y-%m-%d %H:%M"))
+             ", ".join(config["mac_addresses"]), target.strftime("%Y-%m-%d %H:%M"))
 
     while True:
         time.sleep(min(30, max(1, (target - datetime.now()).total_seconds())))
@@ -136,15 +185,12 @@ def run_scheduler(config_path):
             target = next_run(new_config["wake_time"], now)
             log.info("Wake time changed to %s. Next wake at %s",
                      new_config["wake_time"], target.strftime("%Y-%m-%d %H:%M"))
-        if new_config["mac_address"] != config["mac_address"]:
-            log.info("MAC address changed to %s", new_config["mac_address"])
+        if new_config["mac_addresses"] != config["mac_addresses"]:
+            log.info("MAC addresses changed to %s", ", ".join(new_config["mac_addresses"]))
         config = new_config
 
         if now >= target:
-            try:
-                send_from_config(config)
-            except OSError as e:
-                log.error("Failed to send magic packet: %s", e)
+            send_from_config(config)
             target = next_run(config["wake_time"], now)
             log.info("Next wake at %s", target.strftime("%Y-%m-%d %H:%M"))
 
@@ -157,11 +203,15 @@ def main(argv=None):
                         help=f"path to config file (default: {DEFAULT_CONFIG_PATH})")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("send", help="send a magic packet now")
-    sub.add_parser("run", help="run continuously and wake daily at the configured time")
+    sub.add_parser("send", help="wake all listed computers now")
+    sub.add_parser("run", help="run continuously and wake all listed computers daily at the configured time")
     sub.add_parser("show", help="show current settings")
-    p = sub.add_parser("set-mac", help="change the target MAC address")
-    p.add_argument("mac")
+    p = sub.add_parser("add-mac", help="add one or more MAC addresses to the list")
+    p.add_argument("macs", nargs="+", metavar="MAC")
+    p = sub.add_parser("remove-mac", help="remove one or more MAC addresses from the list")
+    p.add_argument("macs", nargs="+", metavar="MAC")
+    p = sub.add_parser("set-mac", help="replace the whole list with the given MAC address(es)")
+    p.add_argument("macs", nargs="+", metavar="MAC")
     p = sub.add_parser("set-time", help="change the daily wake time (24-hour HH:MM)")
     p.add_argument("time")
 
@@ -171,14 +221,22 @@ def main(argv=None):
 
     try:
         if args.command == "send":
-            send_from_config(load_config(args.config))
+            if not send_from_config(load_config(args.config)):
+                return 1
         elif args.command == "run":
             run_scheduler(args.config)
         elif args.command == "show":
             print(json.dumps(load_config(args.config), indent=4))
-        elif args.command == "set-mac":
-            normalize_mac(args.mac)
-            update_config(args.config, "mac_address", args.mac.strip())
+        elif args.command in ("add-mac", "remove-mac", "set-mac"):
+            macs = [m.strip() for m in args.macs]
+            for mac in macs:
+                normalize_mac(mac)
+            if args.command == "add-mac":
+                add_macs(args.config, macs)
+            elif args.command == "remove-mac":
+                remove_macs(args.config, macs)
+            else:
+                update_config(args.config, "mac_addresses", macs)
         elif args.command == "set-time":
             hour, minute = parse_time(args.time)
             update_config(args.config, "wake_time", f"{hour:02d}:{minute:02d}")
