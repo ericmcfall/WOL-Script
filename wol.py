@@ -7,6 +7,9 @@ is woken at the same time. Edit that file directly, or use the commands
 below. A running scheduler re-reads the file every loop, so changes take
 effect without restarting it.
 
+Every command, packet sent and error is also recorded, with the date and
+time, in wol.log next to this script.
+
 Usage:
     python3 wol.py send                  # wake all computers right now
     python3 wol.py run                   # stay running, wake all at the configured time and days
@@ -31,6 +34,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
+LOG_PATH = Path(__file__).resolve().parent / "wol.log"
 
 DEFAULT_CONFIG = {
     "mac_addresses": ["AA:BB:CC:DD:EE:FF"],
@@ -137,7 +141,7 @@ def update_config(path, key, value):
     config = load_config(path)
     config[key] = value
     save_config(path, config)
-    print(f"Updated {key} = {json.dumps(value)} in {path}")
+    log.info("Updated %s = %s in %s", key, json.dumps(value), path)
 
 
 def add_macs(path, macs):
@@ -145,7 +149,7 @@ def add_macs(path, macs):
     known = {normalize_mac(m) for m in current}
     for mac in macs:
         if normalize_mac(mac) in known:
-            print(f"{mac} is already in the list")
+            log.warning("%s is already in the list", mac)
         else:
             current.append(mac)
             known.add(normalize_mac(mac))
@@ -159,7 +163,7 @@ def remove_macs(path, macs):
     missing = to_remove - {normalize_mac(m) for m in current}
     for mac in macs:
         if normalize_mac(mac) in missing:
-            print(f"{mac} was not in the list")
+            log.warning("%s was not in the list", mac)
     if not remaining:
         raise ValueError("Can't remove every MAC address; at least one must remain")
     update_config(path, "mac_addresses", remaining)
@@ -253,6 +257,26 @@ def run_scheduler(config_path):
 
 # --- cli --------------------------------------------------------------------
 
+def setup_logging():
+    """Log to the console and append to wol.log, both with date and time."""
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s",
+                                  datefmt="%Y-%m-%d %H:%M:%S")
+    handlers = []
+    # sys.stderr is None under pythonw.exe (no console), so skip the console there.
+    if sys.stderr is not None:
+        handlers.append(logging.StreamHandler())
+    try:
+        handlers.append(logging.FileHandler(LOG_PATH, encoding="utf-8"))
+        file_error = None
+    except OSError as e:
+        file_error = e
+    for handler in handlers:
+        handler.setFormatter(formatter)
+    logging.basicConfig(level=logging.INFO, handlers=handlers)
+    if file_error:
+        log.warning("Can't write to log file %s: %s", LOG_PATH, file_error)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Wake-on-LAN sender and scheduler.")
     parser.add_argument("-c", "--config", type=Path, default=DEFAULT_CONFIG_PATH,
@@ -274,8 +298,8 @@ def main(argv=None):
     p.add_argument("days", nargs="+", metavar="DAY")
 
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
-                        datefmt="%Y-%m-%d %H:%M:%S")
+    setup_logging()
+    log.info("Command: wol.py %s", " ".join(sys.argv[1:] if argv is None else argv))
 
     try:
         if args.command == "send":
@@ -300,11 +324,14 @@ def main(argv=None):
             update_config(args.config, "wake_time", f"{hour:02d}:{minute:02d}")
         elif args.command == "set-days":
             update_config(args.config, "wake_days", parse_days(args.days))
-    except (ValueError, json.JSONDecodeError) as e:
+    except (ValueError, json.JSONDecodeError, OSError) as e:
         log.error("%s", e)
         return 1
     except KeyboardInterrupt:
         log.info("Stopped.")
+    except Exception:
+        log.exception("Unexpected error")
+        return 1
     return 0
 
 
