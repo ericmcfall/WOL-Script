@@ -44,7 +44,11 @@ this README.
    - Windows: `ipconfig /all` (look for "Physical Address")
    - macOS: `ifconfig en0 | grep ether`
    - Linux: `ip link`
-3. List the MAC addresses and set the wake time and days in `config.json`:
+3. List the MAC addresses and set the wake time and days in `config.json`.
+   The repository only contains `config.example.json`; the first time you run
+   any command, the script copies it to `config.json` for you (or copy it
+   yourself). `config.json` is ignored by git, so your MAC addresses stay on
+   your machine and `git pull` never overwrites them.
 
 ```json
 {
@@ -87,6 +91,11 @@ If a packet fails to send to one computer, the script logs the error and still
 wakes the rest.
 
 To use a different config file, pass `-c path/to/config.json` before the command.
+
+**Updating from an older version:** `config.json` used to be part of the
+repository. If you edited it, `git pull` will stop with "Your local changes
+would be overwritten". Copy `config.json` somewhere safe, run
+`git checkout config.json`, then `git pull`, and copy your file back.
 
 You can change the time, the days or the MAC addresses while `run` is going, by editing
 `config.json` or with the commands above. The scheduler re-reads the file
