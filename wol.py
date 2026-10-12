@@ -27,6 +27,7 @@ import argparse
 import json
 import logging
 import re
+import shutil
 import socket
 import sys
 import time
@@ -34,6 +35,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
+EXAMPLE_CONFIG_PATH = Path(__file__).resolve().parent / "config.example.json"
 LOG_PATH = Path(__file__).resolve().parent / "wol.log"
 BANNER = "Script by Eric McFall, Electrosonic 2026"
 
@@ -104,8 +106,12 @@ def parse_days(values):
 
 def load_config(path):
     if not path.exists():
-        save_config(path, DEFAULT_CONFIG)
-        log.warning("Created default config at %s - edit it with your computers' MAC addresses.", path)
+        # config.json is not kept in git, so start a new one from the example.
+        if EXAMPLE_CONFIG_PATH.exists():
+            shutil.copyfile(EXAMPLE_CONFIG_PATH, path)
+        else:
+            save_config(path, DEFAULT_CONFIG)
+        log.warning("Created config at %s - edit it with your computers' MAC addresses.", path)
     with path.open() as f:
         raw = json.load(f)
     # Older configs had a single "mac_address" string instead of a list.
