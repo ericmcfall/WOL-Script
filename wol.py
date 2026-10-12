@@ -35,6 +35,7 @@ from pathlib import Path
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.json"
 LOG_PATH = Path(__file__).resolve().parent / "wol.log"
+BANNER = "Script by Eric McFall, Electrosonic 2026"
 
 DEFAULT_CONFIG = {
     "mac_addresses": ["AA:BB:CC:DD:EE:FF"],
@@ -299,6 +300,7 @@ def main(argv=None):
 
     args = parser.parse_args(argv)
     setup_logging()
+    log.info("%s", BANNER)
     log.info("Command: wol.py %s", " ".join(sys.argv[1:] if argv is None else argv))
 
     try:

@@ -98,6 +98,7 @@ Every time the script runs, it adds lines to `wol.log`, a plain text file in
 the same folder as `wol.py`. Each line starts with the date and time. The log
 records:
 
+- the banner "Script by Eric McFall, Electrosonic 2026" each time it starts
 - each command you run
 - each magic packet sent
 - every settings change
@@ -106,11 +107,13 @@ records:
 For example:
 
 ```
+2026-10-09 07:00:00 INFO Script by Eric McFall, Electrosonic 2026
 2026-10-09 07:00:00 INFO Command: wol.py run
 2026-10-09 07:00:00 INFO Scheduler started. Waking AA:BB:CC:DD:EE:FF, 11:22:33:44:55:66 at 07:00 on Monday, Tuesday, Wednesday, Thursday, Friday. Next wake: Friday 2026-10-09 07:00
 2026-10-09 07:00:00 INFO Sent magic packet to AA:BB:CC:DD:EE:FF via 255.255.255.255:9
 2026-10-09 07:00:01 INFO Sent magic packet to 11:22:33:44:55:66 via 255.255.255.255:9
 2026-10-09 07:00:01 INFO Next wake: Monday 2026-10-12 07:00
+2026-10-09 18:12:44 INFO Script by Eric McFall, Electrosonic 2026
 2026-10-09 18:12:44 INFO Command: wol.py set-time 06:45
 2026-10-09 18:12:44 INFO Updated wake_time = "06:45" in C:\WOL-Script\config.json
 ```
